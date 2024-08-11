@@ -1,0 +1,255 @@
+---
+title: "predict"
+format: pdf
+editor: visual
+---
+
+loading the required packages
+
+```{r,echo = FALSE}
+
+Sys.setlocale("LC_ALL", "en_US.UTF-8")
+
+library(ggplot2)
+library(MASS)
+library(reshape2)
+library(lme4)
+library(dplyr)
+library(car)
+library(readr)
+library(gbm)
+```
+
+## Background and Introduction
+
+The aim of this project is to develop models for predicting the number of medals won by each country at the Rio Olympics in 2016 using information that was available prior to the Games. This document aims to:
+
+1.  Identify variables associated with the number of medals won in 2012.
+2.  Assess how well models based on data up to and including 2012 predict Olympic performance in 2016.
+3.  Suggest improvements to the models/data for better predictions in future games.
+
+## Data Description
+
+The dataset "olympics2016.csv" contains 108 observations with various features related to Olympic performances from 2000 to 2016.
+
+## Data processing
+
+```{r}
+data <- read.csv("C:/Users/15403/Downloads/olympics2016.csv", na.strings = "#N/A")
+sample_names <- data[, 1]
+data <- data[, -c(1,2)]
+data_12 <- data[ , c("gdp12", "pop12", "gold12", "tot12","bmi", "altitude", "athletes12", "host", "soviet", "comm", "muslim", "oneparty")]
+total_gold_12 <- data[, c( "totgold12", "totmedals12")]
+sum(is.na(data_12))
+```
+
+which reveal that there exist missing value. So we iterate over evey colume and transfer NA into the mean of colomn of that missing value.
+
+```{r}
+for (i in seq_along(data_12))
+  if (is.numeric(data_12[[i]])){
+    column_mean <- mean(data_12[[i]], na.rm = TRUE)
+    data_12[[i]][is.na(data_12[[i]])] <- column_mean
+  }
+sum(is.na(data_12))
+```
+
+## Data Exploration and Visualization
+
+### Summary Statistics and Distribution of Medals in 2012
+
+```{r}
+# Load the dataset
+olympics_data <- data_12
+
+# Summary statistics for the total number of medals in 2012
+summary(olympics_data$tot12)
+```
+
+### Visualization
+
+```{r}
+# Histogram
+ggplot(olympics_data, aes(x = tot12)) + 
+  geom_histogram(binwidth = 5, fill = "blue", color = "black") + 
+  labs(title = "Distribution of Total Medals in 2012", x = "Total Medals in 2012", y = "Frequency")
+
+# Boxplot
+ggplot(olympics_data, aes(y = tot12)) + 
+  geom_boxplot(fill = "orange", color = "black") + 
+  labs(title = "Boxplot of Total Medals in 2012", y = "Total Medals in 2012")
+
+```
+
+## Correlation Analysis and Scatterplot Matrix
+
+Analyzing correlations between variables helps in understanding the relationships between them and the target variable.
+
+```{r}
+# Load necessary library
+library(GGally)
+
+# Select relevant columns for correlation analysis
+correlation_data <- olympics_data %>%
+  select(gdp12, pop12, soviet, comm, muslim, oneparty, bmi, altitude, athletes12, host, tot12)
+
+# Calculate correlation matrix
+correlation_matrix <- cor(correlation_data, use = "complete.obs")
+
+# Display correlation matrix
+correlation_matrix
+
+# Scatterplot Matrix
+ggpairs(correlation_data, 
+        upper = list(continuous = wrap("cor", size = 3)),
+        title = "Scatterplot Matrix")
+```
+
+Based on the above results, we found that the correlation coefficients between BMI, Soviet, and Tot12 are too low and will not be considered in the subsequent modeling process
+
+## Modeling
+
+We chose the Poisson regression model to process the counting data and used the negative binomial regression model to deal with the case when the data had excessive dispersion (variance greater than the mean) to improve the model's fit and prediction accuracy.
+
+```{r}
+# construct train data
+train_data <- data %>%
+  dplyr::select(gdp12, pop12, altitude, comm, muslim, oneparty, athletes12, host, tot12)
+
+colnames(train_data) <- c("gdp", "pop", "altitude" , "comm", "muslim", "oneparty", "athletes", "host","tot")
+```
+
+### Poisson Regression
+
+```{r}
+# Fit Poisson Regression Model
+poisson_model <- glm(tot ~ gdp + pop + comm + muslim + oneparty + altitude + athletes + host, family = poisson(link = "log"), data = train_data)
+
+# Summary of Poisson Regression Model
+summary(poisson_model)
+
+```
+
+### Checking for Overdispersion
+
+```{r}
+# Calculate dispersion parameter
+dispersion_param <- sum(residuals(poisson_model, type = "pearson")^2) / poisson_model$df.residual
+dispersion_param
+
+```
+
+The dispersion parameter calculated is 3.498, which is significantly greater than 1. This confirms the presence of overdispersion in the data, indicating that a Negative Binomial regression model would be more appropriate than a Poisson regression model.
+
+### Negative Binomial Regression
+
+```{r}
+# Fit Negative Binomial Regression Model
+neg_binom_model <- glm.nb(tot ~ gdp + pop + comm + muslim + oneparty + altitude + athletes + host, 
+                          data = train_data)
+
+# Summary of Negative Binomial Regression Model
+summary(neg_binom_model)
+
+```
+
+## Variable Significance Analysis
+
+We will compare the significance of variables in both the Poisson and Negative Binomial models.
+
+```{r}
+poisson_summary <- summary(poisson_model)
+neg_binom_summary <- summary(neg_binom_model)
+
+# Display significant variables in Poisson Model
+poisson_significant <- poisson_summary$coefficients[poisson_summary$coefficients[,4] < 0.05, ]
+poisson_significant
+
+# Display significant variables in Negative Binomial Model
+neg_binom_significant <- neg_binom_summary$coefficients[neg_binom_summary$coefficients[,4] < 0.05, ]
+neg_binom_significant
+
+```
+
+## stepwise
+
+### Stepwise regression of Poisson regression model
+
+```{r}
+# Select variables using stepwise regression
+poisson_model_full <- glm(tot ~ gdp + comm + muslim + athletes + host, 
+                          family = poisson(link = "log"), data = train_data)
+poisson_model_step <- step(poisson_model_full, direction = "both", trace = FALSE)
+
+# Output the final Poisson regression model
+summary(poisson_model_step)
+```
+
+### Stepwise regression of negative binomial regression model
+
+```{r}
+# Select variables using stepwise regression
+neg_binom_model_full <- glm.nb(tot ~ gdp + comm + muslim + athletes + host, 
+                               data = train_data)
+
+neg_binom_model_step <- step(neg_binom_model_full, direction = "both", trace = FALSE)
+
+# Output the final negative binomial regression model
+summary(neg_binom_model_step)
+```
+
+## Predicting 2016 Medals
+
+### Prepare Prediction Dataset
+
+```{r}
+# Create prediction set, select relevant variables
+predict_data <- data %>%
+  dplyr::select(gdp16, comm, muslim, athletes16, host, tot16)
+# Check for and handle missing values
+colnames(predict_data) <- c("gdp", "comm", "muslim", "athletes", "host", "tot16")
+predict_data <- na.omit(predict_data)
+```
+
+### Poisson Model: Predict and Calculate RMSE
+
+```{r}
+# Predict the 2016 medal count using Poisson's final model
+predicted_tot16_poisson <- predict(poisson_model_step, newdata = predict_data, type = "response")
+
+# Calculate the root mean square error (RMSE) of the prediction
+rmse_poisson <- sqrt(mean((predict_data$tot - predicted_tot16_poisson)^2))
+rmse_poisson
+```
+
+### Negative Binomial Model: Predict and Calculate RMSE
+
+```{r}
+# Predict the 2016 medal count using Negative Binomial's final model
+predicted_tot16_nb <- predict(neg_binom_model_step, newdata = predict_data, type = "response")
+
+# Calculate the root mean square error (RMSE) of the prediction
+rmse_nb <- sqrt(mean((predict_data$tot - predicted_tot16_nb)^2))
+rmse_nb
+```
+Despite the higher RMSE of Poisson regression models, negative binomial regression models are generally a better choice given the overdispersion of the data.
+
+### Improvement
+
+```{r}
+# Create prediction set, select relevant variables
+predict_data_1<- data %>%
+  dplyr::select(gdp16, pop16, comm, muslim, oneparty, altitude, athletes16, host,tot16)
+# Check for and handle missing values
+colnames(predict_data_1) <- c("gdp", "pop", "comm", "muslim", "oneparty", "altitude", "athletes", "host", "tot16")
+predict_data_1 <- na.omit(predict_data_1)
+```
+
+```{r}
+# Improvement with Gradient Boosting Trees
+gbmModel <- gbm(tot ~ ., data = train_data , distribution = "gaussian", n.trees = 5000, shrinkage = 0.005, interaction.depth = 6 )
+predictions <- predict(gbmModel, predict_data_1, n.trees = 3000)
+
+rmse_gbm<- sqrt(mean((predictions - predict_data_1$tot16)^2))
+rmse_gbm
+```
