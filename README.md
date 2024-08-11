@@ -52,4 +52,4 @@ The dataset olympics2016. csv has 108 observations and the following variables:
 
 • How well does a model based on data up to and including 2012 predict Olympic performance in the 2016 Games?
 
-• What improvements might be made to the model/data collected in order to better predict Olympic medal counts for future 
+• What improvements might be made to the model/data collected in order to better predict Olympic medal counts for future games?
