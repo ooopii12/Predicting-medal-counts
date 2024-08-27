@@ -1,0 +1,786 @@
+---
+author: "Nian He"
+date: "30/08/2024"
+documentclass: report
+fontsize: 12pt
+output: rmarkdown::github_document
+---
+
+## Predicting the 2016 Olympic Medals Using General Linear Models and Ensemble Machine Learning Techniques
+
+------------------------------------------------------------------------
+
+## 1. Introduction
+
+The Olympic Games serve as a global platform where nations showcase their athletic prowess, with the total number of medals won by each country often reflecting its sports development, resources, and strategic investments. Predicting the total number of medals a country will win at an upcoming Olympic event is a complex task that requires careful consideration of various factors, including economic indicators, historical performance, and geopolitical context.
+
+This project aimed to develop predictive models to forecast the total number of medals that countries won at the Rio 2016 Olympics using data available before the Games. The focus was on identifying key factors that influence Olympic success and evaluating the accuracy of the predictive models. The ultimate goal was to provide insights that can improve future predictions of Olympic medal counts.
+
+The questions of interest are the following:
+
+-   Which variables are associated with the total number of medals won by each country in 2012?
+-   How well does the model predict the 2016 results?
+-   What improvements might be made to the model/data collected to increase the predicting performance?
+
+The specific objectives of this project are:
+
+-   Identify Key Variables: Analyzed the variables associated with the total number of medals won in the 2012 Olympics to determine the factors influencing medal counts.
+
+-   Develop Predictive Models: Built and evaluate models using data up to and including the 2012 Olympics to predict the total medal counts for the 2016 Rio Olympics.
+
+-   Assess Model Performance: Compared the model predictions with the actual outcomes of the 2016 Olympics and with predictions published online before the Games.
+
+-   Suggest Improvements: Proposed enhancements to the models and data collection for better prediction accuracy in future Olympics.
+
+## 2.Data description
+
+The dataset `olympics2016.csv` includes data on countries that participated in the 2016 Rio Olympics, with the following variables (all YY variables correspond to the years 2000, 2004, 2008, 2012, and 2016):
+
+### Numerical Variables:
+
+-   **gdpYY**: The country's GDP in millions of US dollars for the year YY.
+-   **popYY**: The country's population in thousands for the year YY.
+-   **goldYY**: Number of gold medals won by the country in the YY Olympics.
+-   **totYY**: Total number of medals won by the country in the YY Olympics.
+-   **totgoldYY**: Total number of gold medals awarded in the YY Olympics.
+-   **totmedalsYY**: Total number of all medals awarded in the YY Olympics.
+-   **bmi**: Average BMI (Body Mass Index) of the population (not distinguishing by gender).
+-   **altitude**: Altitude of the country's capital city above sea level.
+-   **athletesYY**: Number of athletes representing the country in the YY Olympics.
+
+### Categorical Variables:
+
+-   **country**: Name of the country.
+-   **country.code**: The three-letter code representing the country.
+-   **soviet**: Indicates whether the country was part of the former Soviet Union (1 = Yes, 0 = No).
+-   **comm**: Indicates whether the country is a former or current communist state (1 = Yes, 0 = No).
+-   **muslim**: Indicates whether the country has a Muslim-majority population (1 = Yes, 0 = No).
+-   **oneparty**: Indicates whether the country is a one-party state (1 = Yes, 0 = No).
+-   **host**: Indicates whether the country has hosted, is hosting, or will host the Olympics (1 = Yes, 0 = No).
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#loading the required packages
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(MASS)
+library(reshape2)
+library(lme4)
+library(dplyr)
+library(car)
+library(readr)
+library(gbm)
+library(randomForest)
+library(pscl)
+library(gt)
+```
+
+## 3. Methodology
+
+This project employed a combination of statistical and machine learning methodologies to predict the total number of medals won by each country in the 2016 Rio Olympics.
+
+### 3.1 Exploratory Data Analysis (EDA)
+
+**Objective:**\
+Before constructing predictive models, we first conducted Exploratory Data Analysis (EDA) to understand the relationships between variables, identified significant predictors, and assessed the distributions of key variables.
+
+**Key Methods:**
+
+-   **Correlation Analysis:** Correlation analysis was used to identify linear relationships between continuous variables, such as GDP, population, and the number of medals won. The correlation coefficient ($r$) quantified the strength of these relationships:
+
+$$
+  r = \frac{\sum_{i=1}^{n} (X_i - \bar{X})(Y_i - \bar{Y})}{\sqrt{\sum_{i=1}^{n} (X_i - \bar{X})^2 \sum_{i=1}^{n} (Y_i - \bar{Y})^2}}
+  $$
+
+-   **Boxplots and Chi-Squared Tests for Categorical Variables:**\
+    Boxplots were used to visualize the distribution of medals across different categorical variables (e.g., former Soviet Union status, hosting status). Chi-squared tests assessed the independence between categorical variables:
+
+    $$
+    \chi^2 = \sum \frac{(O_i - E_i)^2}{E_i}
+    $$
+
+    where $O_i$ is the observed frequency, and $E_i$ was the expected frequency under the null hypothesis of independence.
+
+### 3.2 General Linear Models (GLM)
+
+**Objective:**\
+To identify the key variables associated with the number of medals won and to develop a predictive model based on data up to and including the 2012 Olympics.
+
+**Key Methods:**
+
+-   **Poisson Regression:**\
+    Given that the number of medals was a count variable, Poisson regression was initially employed. The Poisson model assumed that the count data follows a Poisson distribution:
+
+$$
+  P(Y = y) = \frac{e^{-\lambda} \lambda^y}{y!}
+  $$
+
+where $\lambda = e^{\beta_0 + \beta_1X_1 + \dots + \beta_kX_k}$ was the mean and variance of the distribution, with $X_1, \dots, X_k$ being the predictors.
+
+-   **Negative Binomial Regression:**\
+    To account for overdispersion in the count data (variance greater than the mean), a Negative Binomial model was also applied. This model generalized the Poisson regression by adding a dispersion parameter $\alpha$, allowing variance to exceed the mean:
+
+    $$
+    \text{Var}(Y) = \lambda + \alpha \lambda^2
+    $$
+
+### 3.3 Zero-Inflated Models
+
+**Objective:**\
+Zero-Inflated models were particularly useful when dealing with count data that have an excess number of zeros. These models assume that the data come from two different processes: one that generates only zeros (e.g., countries that do not participate in medal-winning sports) and one that generates counts following a Poisson or Negative Binomial distribution (e.g., countries that do participate).
+
+**Key Methods:**
+
+-   **Zero-Inflated Poisson Model (ZIP):**\
+    The Zero-Inflated Poisson model combined a Poisson distribution with a logit model that predicts the probability of an excess zero:
+
+$$
+  P(Y = 0) = \pi + (1 - \pi) \cdot e^{-\lambda}
+  $$
+
+$$
+  P(Y = y) = (1 - \pi) \cdot \frac{e^{-\lambda} \lambda^y}{y!}, \quad y > 0
+  $$
+
+where $\pi$ was the probability of the zero-inflation component and $\lambda$ was the mean of the Poisson distribution.
+
+-   **Zero-Inflated Negative Binomial Model (ZINB):**\
+    The Zero-Inflated Negative Binomial model was similar to the ZIP model but used a Negative Binomial distribution to account for overdispersion:
+
+    $$
+    P(Y = 0) = \pi + (1 - \pi) \cdot \left(\frac{1}{1 + \alpha \lambda}\right)^{\frac{1}{\alpha}}
+    $$
+
+    $$
+    P(Y = y) = (1 - \pi) \cdot \frac{\Gamma(y + \frac{1}{\alpha})}{\Gamma(\frac{1}{\alpha}) y!} \left(\frac{1}{1 + \alpha \lambda}\right)^{\frac{1}{\alpha}} \left(\frac{\alpha \lambda}{1 + \alpha \lambda}\right)^y, \quad y > 0
+    $$
+
+    where $\alpha$ was the dispersion parameter, and $\lambda$ was the mean of the Negative Binomial distribution.
+
+### 3.4 Ensemble Machine Learning Techniques
+
+**Objective:**\
+To improve the predictive accuracy of the model by applying advanced machine learning techniques, specifically Gradient Boosting Trees and Random Forests.
+
+**Key Methods:**\
+
+-   **Gradient Boosting Trees (GBM):** GBM was an ensemble technique that built models sequentially, where each new model corrected errors made by the previous ones. The general principle was to minimize the loss function (e.g., Mean Squared Error) by iteratively fitting a model to the residual errors of previous models:
+
+$$
+  F_{m+1}(x) = F_m(x) + h_m(x)
+  $$
+
+where $h_m(x)$ was the new model fitted to the residuals of the previous model $F_m(x)$.
+
+-   **Random Forest:** Random Forest was another ensemble method that aggregates the predictions of multiple decision trees, each built on a bootstrap sample of the data. It helped reduce overfitting by averaging multiple deep trees, each trained on different parts of the data:
+
+    $$
+      \hat{y} = \frac{1}{B} \sum_{b=1}^{B} T_b(x)
+      $$
+
+    where $T_b(x)$ was the prediction of the $b$-th tree, and $B$ was the number of trees.
+
+### 3.5 Model Evaluation and Improvement
+
+**Objective:**\
+To evaluate the performance of the developed models in predicting the 2016 Olympic medal counts and suggest improvements for future predictions.
+
+**Key Methods:**
+
+-   **Evaluation Metrics:**\
+    The models were evaluated using Root Mean Square Error (RMSE) and Mean Absolute Error (MAE), which measured the differences between the predicted and actual medal counts:
+
+$$
+  \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2}
+  $$
+
+$$
+  \text{MAE} = \frac{1}{n} \sum_{i=1}^{n} |y_i - \hat{y}_i|
+  $$
+
+-   **Comparison of Models:**\
+    The performance of Poisson, Negative Binomial, Zero-Inflated, Gradient Boosting Trees, and Random Forest models were compared using the above metrics. The model with the lowest RMSE and MAE was considered the most accurate.
+
+-   **Model Improvement:** Based on the evaluation, improvements may include further tuning of hyperparameters, incorporating additional variables, or applying more sophisticated ensemble methods to enhance predictive performance.
+
+## 4. Exploratory Data Analysis
+
+### 4.1 Data Preparation
+
+The data preparation process was a crucial step in ensuring the integrity and reliability of the subsequent analysis. The following key tasks were undertaken:
+
+#### 4.1.1 Loading and Selecting Relevant Variables:
+
+We began by loading the dataset and focusing on the total number of medals as the dependent variable. We carefully selected relevant predictor variables, eliminating those that were not necessary for our analysis.
+
+#### 4.1.2 Handling Missing Values:
+
+To ensure the completeness and accuracy of the dataset, we addressed missing values by implementing specific imputation strategies. For countries with missing GDP data, we manually imputed these values based on reliable external sources. For instance, Afghanistan's GDP in 2000 was set to 3532 million USD, Cuba's GDP in 2016 was set to 91370 million USD, and the Syrian Arab Republic's GDP in 2016 was set to 12377 million USD. These imputations were critical to maintaining the consistency and integrity of the dataset.
+
+Additionally, for missing BMI values, we calculated the mean BMI across the entire dataset and used this average to fill in the gaps. This approach ensured that the dataset was complete and free from missing entries, which is essential for accurate and unbiased analysis. By applying these methods, we prepared the dataset to be fully utilized in the subsequent analytical processes.
+
+#### 4.1.3 Creating Subsets for Each Olympic Year:
+
+The dataset was then organized into subsets corresponding to each Olympic year (2000, 2004, 2008, 2012, and 2016). This approach allowed for a structured comparison across different years and facilitated the development of models based on historical data.
+
+#### 4.1.4 Training and Testing Data Preparation:
+
+For model evaluation, the data from the 2016 Olympics was set aside as the test dataset. The data from previous Olympic years (2000, 2004, 2008, and 2012) were combined to create a comprehensive training dataset. This separation was critical for testing the predictive accuracy of our models based on historical trends.
+
+#### 4.1.5 Final Data Checks:
+
+A final check was conducted to ensure that no missing values remained in the training dataset. This step confirmed the readiness of the data for further analysis, guaranteeing that the models could be developed without concerns about data quality.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Load the dataset
+data <- read.csv("C:/Users/15403/Downloads/olympics2016_1.csv", na.strings = "#N/A")
+# We focus on the total number of medals as the dependent variable
+data <- data[, -c(17:21,27:36)]
+
+#Handle Missing Values
+#Identify rows with missing values
+na_rows <- data[rowSums(is.na(data)) > 0, ]
+print(na_rows)
+#Impute missing values
+data$gdp00[data$country=="Afghanistan"]<-3532
+data$gdp16[data$country=="Cuba"]<-91370
+data$gdp16[data$country=="Syrian Arab Republic"]<-12377
+mean_bmi <- mean(data$bmi, na.rm = TRUE)
+data$bmi[is.na(data$bmi)] <- mean_bmi
+
+
+#Create Data Subsets for Each Olympic Year
+#We create subsets of the data for each Olympic year (2000, 2004, 2008, 2012, and 2016) to facilitate our analysis and model building.
+# 2000 Data
+data00 <- data[,(names(data) %in% c("gdp00", "pop00", "tot00", "athletes00", "country", "country.code",
+                                    "soviet", "comm", "muslim", "oneparty","bmi", "altitude", 
+                                    "host"))]
+data00$year <- rep(2000, 108)
+
+# 2004 Data
+data04 <- data[,(names(data) %in% c("gdp04", "pop04", "tot04", "athletes04", "country", "country.code",
+                                    "soviet", "comm", "muslim", "oneparty","bmi", "altitude", 
+                                    "host"))]
+data04$year <- rep(2004, 108)
+
+# 2008 Data
+data08 <- data[,(names(data) %in% c("gdp08", "pop08", "tot08", "athletes08", "country", "country.code",
+                                    "soviet", "comm", "muslim", "oneparty","bmi","altitude", 
+                                    "host"))]
+data08$year <- rep(2008, 108)
+
+# 2012 Data
+data12 <- data[,(names(data) %in% c("gdp12", "pop12", "tot12", "athletes12", "country", "country.code",
+                                    "soviet", "comm", "muslim", "oneparty", "bmi", "altitude", "host"))]
+data12$year <- rep(2012, 108)
+
+# 2016 Data
+data16 <- data[,(names(data) %in% c("gdp16", "pop16", "tot16", "athletes16", "country", "country.code",
+                                    "soviet", "comm", "muslim", "oneparty", "bmi", "altitude", 
+                                    "host"))]
+data16$year <- rep(2016, 108)
+
+# Create Training and Testing Data
+
+
+# Prepare test data for 2016
+test.data <- data16
+colnames(test.data) <- c("country", "country.code", "gdp", "pop", "soviet", "comm", "muslim", "oneparty", "tot", "bmi","altitude", "athletes", "host")
+
+# Prepare training data by combining all years
+train.data <- data.frame(c(data00$country, data04$country, data08$country, data12$country),
+                         c(data00$gdp00, data04$gdp04, data08$gdp08, data12$gdp12),
+                         c(data00$pop00, data04$pop04, data08$pop08, data12$pop12),
+                         c(data00$soviet, data04$soviet, data08$soviet, data12$soviet),
+                         c(data00$comm, data04$comm, data08$comm, data12$comm),
+                         c(data00$muslim, data04$muslim, data08$muslim, data12$muslim),
+                         c(data00$oneparty, data04$oneparty, data08$oneparty, data12$oneparty),
+                         c(data00$bmi, data04$bmi, data08$bmi, data12$bmi),
+                         c(data00$tot00, data04$tot04, data08$tot08, data12$tot12),
+                         c(data00$altitude, data04$altitude, data08$altitude, data12$altitude),
+                         c(data00$athletes00, data04$athletes04, data08$athletes08, data12$athletes12),
+                         c(data00$host, data04$host, data08$host, data12$host),
+                         c(data00$year, data04$year, data08$year, data12$year))
+colnames(train.data) <- c("country","gdp", "pop", "soviet", "comm", "muslim", "oneparty", "bmi",  "tot",
+                          "altitude", "athletes", "host", "year")
+
+
+#Check for Missing Values
+
+
+sum(is.na(train.data))
+```
+
+### 4.2 Correlation Analysis
+
+We conducted a correlation analysis to understand the relationships between the variables.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align="center", fig.width=14, fig.height=8}
+# Select relevant columns for correlation analysis
+correlation_data <- train.data %>%
+  dplyr::select(gdp, pop, soviet, comm, muslim, oneparty, bmi, altitude, athletes, host, tot)
+correlation_matrix <- cor(correlation_data, use = "complete.obs")
+
+
+# Scatterplot Matrix
+ggpairs(correlation_data, 
+        upper = list(continuous = wrap("cor", size = 3)),
+        title = "Scatterplot Matrix")
+
+```
+
+The correlation analysis revealed that several factors were closely related to the total number of medals a country won at the Olympics. First, there was a very strong positive correlation between GDP and total medals (correlation coefficient of 0.76), indicating that economically stronger countries tended to win more medals. The number of athletes competing showed an even more significant correlation with total medals (correlation coefficient of 0.89), suggesting that having more athletes contributed to a higher medal count. Additionally, being the host country was also strongly correlated with total medals (correlation coefficient of 0.66), indicating that host nations often won more medals, possibly due to home advantage and greater participation. In contrast, the correlation between population and total medals was moderate (correlation coefficient of 0.42), while other variables, such as whether a country was a former Soviet state, a communist state, a Muslim-majority country, a one-party state, or its average BMI, showed relatively weak correlations with total medals. These findings suggested that GDP, the number of athletes, and host status were the most critical factors in predicting a country's total medal count.
+
+### 4.3 Visualize categorical variables
+
+Regarding the categorical variables, the plots indicated that host countries, communist countries, and one-party states tended to win a higher number of medals. However, it was important to note that there were only three one-party countries, with China accounting for a substantial portion of the medals, which significantly skewed the boxplot.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align="center", fig.width=12, fig.height=12}
+# Visualize categorical variables
+g1 <- ggplot(train.data, aes(x=as.factor(soviet), y=tot, fill=as.factor(soviet)))+
+      geom_boxplot(alpha=0.5, outlier.alpha = 0)+theme(legend.position="right")+
+      geom_jitter(aes(colour=as.factor(soviet),alpha=0.3),show.legend=FALSE)+ 
+      scale_fill_discrete(name="Soviet variable",labels=c("Non-soviet","Soviet"))+
+      labs(x="Soviet / Non-soviet countries",y="Total number of medals")
+
+g2 <- ggplot(train.data, aes(x=as.factor(muslim), y=tot, fill=as.factor(muslim)))+
+      geom_boxplot(alpha=0.5, outlier.alpha=0)+theme(legend.position="right")+
+      geom_jitter(aes(colour=as.factor(muslim),alpha=0.3),show.legend=FALSE)+ 
+      scale_fill_discrete(name="Muslim variable", labels=c("Non-muslim","Muslim"))+
+      labs(x="Muslim / Non-muslim countries",y="Total number of medals")
+
+g3 <- ggplot(train.data, aes(x=as.factor(oneparty), y=tot, fill=as.factor(oneparty)))+
+      geom_boxplot(alpha=0.5, outlier.alpha=0)+theme(legend.position="right")+
+      geom_jitter(aes(colour=as.factor(oneparty),alpha=0.3),show.legend=FALSE)+
+      scale_fill_discrete(name="One party variable", labels=c("Multiple parties","One party"))+
+      labs(x="One party / Multiple parties countries",y="Total number of medals")
+
+g4 <- ggplot(train.data, aes(x=as.factor(comm), y=tot, fill=as.factor(comm)))+
+      geom_boxplot(alpha=0.5, outlier.alpha=0)+
+      geom_jitter(aes(colour=as.factor(comm),alpha=0.3),show.legend=FALSE)+
+      scale_fill_discrete(name="Communist variable", labels=c("Non-communist","Communist"))+
+      labs(x="Communist / Non-communist countries",y="Total number of medals")
+
+g5 <- ggplot(train.data, aes(x=as.factor(host), y=tot, fill=as.factor(host)))+
+      geom_boxplot(alpha=0.5, outlier.alpha=0)+theme(legend.position="right")+
+      geom_jitter(aes(colour=as.factor(host),alpha=0.3),show.legend=FALSE)+
+      scale_fill_discrete(name="Host variable", labels=c("Non-host","Host"))+
+      labs(x="Host/ Non-host countries",y="Total number of medals")
+
+grid.arrange(g1,g2,g3,g4,g5,nrow=3)
+```
+
+### 4.4 Independence Tests for Categorical Variables
+
+We used chi-squared and Fisher's exact tests to check the independence of categorical variables, which helped in ensuring that no redundant variables are included in the model. The table of independence analysis was shown in the figure below
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align="center", fig.cap="Chi-squared and Fisher tests"}
+# Chi-squared and Fisher tests to check independence among categorical variables
+
+# Oneparty vs. Comm
+chit_one_com <- chisq.test(train.data$oneparty, train.data$comm)
+fish_one_com <- fisher.test(train.data$oneparty, train.data$comm)
+
+# Oneparty vs. Soviet
+chit_one_sov <- chisq.test(train.data$oneparty, train.data$soviet)
+fish_one_sov <- fisher.test(train.data$oneparty, train.data$soviet)
+
+# Oneparty vs. Muslim
+chit_one_mus <- chisq.test(train.data$oneparty, train.data$muslim)
+fish_one_mus <- fisher.test(train.data$oneparty, train.data$muslim)
+
+# Oneparty vs. Host
+chit_one_hos <- chisq.test(train.data$oneparty, train.data$host)
+fish_one_hos <- fisher.test(train.data$oneparty, train.data$host)
+
+# Soviet vs. Muslim
+chit_sov_mus <- chisq.test(train.data$soviet, train.data$muslim)
+fish_sov_mus <- fisher.test(train.data$soviet, train.data$muslim)
+
+# Soviet vs. Comm
+chit_sov_com <- chisq.test(train.data$soviet, train.data$comm)
+fish_sov_com <- fisher.test(train.data$soviet, train.data$comm)
+
+# Soviet vs. Host
+chit_sov_hos <- chisq.test(train.data$soviet, train.data$host)
+fish_sov_hos <- fisher.test(train.data$soviet, train.data$host)
+
+# Comm vs. Muslim
+chit_com_mus <- chisq.test(train.data$comm, train.data$muslim)
+fish_com_mus <- fisher.test(train.data$comm, train.data$muslim)
+
+# Comm vs. Host
+chit_com_hos <- chisq.test(train.data$comm, train.data$host)
+fish_com_hos <- fisher.test(train.data$comm, train.data$host)
+
+# Muslim vs. Host
+chit_mus_hos <- chisq.test(train.data$muslim, train.data$host)
+fish_mus_hos <- fisher.test(train.data$muslim, train.data$host)
+
+# Summarize results
+cat_var_tests <- data.frame(
+  "Chi-squared test" = round(c(chit_one_com$p.value, chit_one_sov$p.value, chit_one_mus$p.value,
+                               chit_one_hos$p.value, chit_sov_mus$p.value, chit_sov_com$p.value,
+                               chit_sov_hos$p.value, chit_com_mus$p.value, chit_com_hos$p.value,
+                               chit_mus_hos$p.value), 2),
+  "Fisher test" = round(c(fish_one_com$p.value, fish_one_sov$p.value, fish_one_mus$p.value,
+                          fish_one_hos$p.value, fish_sov_mus$p.value, fish_sov_com$p.value,
+                          fish_sov_hos$p.value, fish_com_mus$p.value, fish_com_hos$p.value,
+                          fish_mus_hos$p.value), 2),
+  "Independence" = c(rep("independent", 5), "associated", rep("independent", 3), "on the boundary")
+)
+
+rownames(cat_var_tests) <- c("oneparty vs. comm", "oneparty vs. soviet", "oneparty vs. muslim",
+                             "oneparty vs. host", "soviet vs. muslim", "soviet vs. comm",
+                             "soviet vs. host", "comm vs. muslim", "comm vs. host", "muslim vs. host")
+
+cat_var_tests <- gt(cat_var_tests)
+
+cat_var_tests
+```
+
+The independence analysis between various categorical variables revealed that most pairs of variables were independent, as indicated by both the Chi-squared test and Fisher's exact test results. Specifically, variables such as "one-party vs. communist," "one-party vs. Soviet," "one-party vs. Muslim," and "one-party vs. host" all demonstrated independence. Additionally, the analysis showed that "Soviet vs. Muslim," "Soviet vs. host," "communist vs. Muslim," and "communist vs. host" were also independent. However, a significant association was found between "Soviet vs. communist" countries, suggesting a potential overlap or relationship between these two categories. The relationship between "Muslim vs. host" countries appeared to be on the boundary of significance, indicating a potential but not definitive connection. Overall, the results highlighted that while most variables were independent, specific associations, particularly between Soviet and communist countries, warranted further investigation.
+
+### 4.4 Distribution of Total Medals (2000-2012)
+
+We explored the distribution of the total number of medals won by countries from 2000 to 2012, as well as specifically in 2012.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align="left", fig.width=6, fig.height=4}
+ggplot(train.data, aes(x = tot)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") + 
+  labs(title = "Distribution of Total Medals (2000-2012)", x = "Total Medals", y = "Frequency")
+
+```
+
+The distribution of total medals won by countries in the Olympic Games from 2000 to 2012 was highly right-skewed, indicating a significant disparity in medal counts across nations. Most countries won fewer medals in these years, and only a few countries won a large number of medals. This skewed distribution (positive bias) is well suited for analysis with Poisson regression or negative binomial regression models. In addition, we can also use the zero expansion model for analysis
+
+## 5. Modeling
+
+We employed various models, including Poisson Regression, Negative Binomial Regression, and Zero-Inflated models, to predict the total number of medals won by each country in the 2016 Rio Olympics. Poisson Regression Poisson regression was used to model count data and was suitable for predicting the total number of medals.
+
+### 5.1 Poisson Model
+
+During the Poisson regression model fitting process, an initial model with multiple variables was constructed, followed by model optimization using stepwise selection. To address the issue of non-independence between the `muslim` and `host` variables, these variables were removed one at a time. By comparing the AIC values of the two models after removing `muslim` and `host`, the model with the `muslim` variable removed was selected as the final Poisson regression model.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Fit Poisson Regression Model
+poisson_model <- glm(tot ~ gdp + pop + comm + oneparty + altitude + muslim + bmi +
+                     athletes + host, family = poisson, data = train.data)
+
+# Summary of Poisson Regression Model
+summary(poisson_model)
+
+# Stepwise selection to optimize the model
+poisson_model_step <- step(poisson_model, direction = "both", trace = FALSE)
+summary(poisson_model_step)
+
+# dropping muslim
+poisson_model_step_1  <- glm(tot ~ gdp + pop + comm + oneparty + altitude  + bmi + athletes + host, family = poisson, data = train.data)
+summary(poisson_model_step_1)
+
+# dropping host
+poisson_model_step_2  <- glm(tot ~ gdp + pop + comm + oneparty + altitude + muslim + bmi + athletes, family = poisson, data = train.data)
+summary(poisson_model_step_2)
+poisson_model_final <- poisson_model_step_1
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+summary(poisson_model_final)
+```
+
+The Poisson regression model used in this analysis can be expressed mathematically as follows:
+
+$$
+\text{log}(\mu_i) = \beta_0 + \beta_1 \cdot \text{gdp}_i + \beta_2 \cdot \text{pop}_i + \beta_3 \cdot \text{comm}_i + \beta_4 \cdot \text{oneparty}_i + \beta_5 \cdot \text{altitude}_i + \beta_6 \cdot \text{bmi}_i + \beta_7 \cdot \text{athletes}_i + \beta_8 \cdot \text{host}_i
+$$
+
+where: $\mu_i$ was the expected number of medals ($tot_i$) for country $i$, $\beta_0$ was the intercept, $\beta_1$ was the coefficient for Gross Domestic Product ($\text{gdp}_i$), $\beta_2$ is the coefficient for population ($\text{pop}_i$), $\beta_3$ was the coefficient for whether the country was a communist state ($\text{comm}_i$), $\beta_4$ was the coefficient for whether the country was a one-party state ($\text{oneparty}_i$), $\beta_5$ was the coefficient for the altitude of the country's capital city ($\text{altitude}_i$), $\beta_6$ was the coefficient for the average BMI of the country ($\text{bmi}_i$), $\beta_7$ was the coefficient for the number of athletes ($\text{athletes}_i$), $\beta_8$ was the coefficient for whether the country was the host of the Olympics ($\text{host}_i$).
+
+The variance in the Poisson model was equal to the mean:
+
+$$
+\text{Var}(Y_i) = \mu_i
+$$
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+##Checking for Overdispersion
+# Calculate dispersion parameter
+dispersion_param <- sum(residuals(poisson_model_final, type = "pearson")^2) / poisson_model_final$df.residual
+dispersion_param
+```
+
+### 5.2 Negative Binomial Regression
+
+Negative Binomial regression was applied when the data exhibit over-dispersion, which was common in count data. The discrete parameter calculated based on the previous Poisson model is α=3.43, it was obvious that the negative binomial regression model was more suitable than the Poisson regression model. This showed that the negative binomial regression model can not only better capture the variance in the data, but also improved the accuracy of the prediction when analyzing such over-discrete counting data. During the Poisson regression model fitting process, an initial model with multiple variables was constructed,then all the non-significant variables were removed and the final negative binomial regression model was constructed with the remaining variables.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Fit Negative Binomial Regression Model
+neg_binom_model <- glm.nb(tot ~ gdp + pop + comm + oneparty + altitude + muslim + bmi + athletes + host, data = train.data)
+summary(neg_binom_model)
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Final Negative Binomial Model after optimization
+neg_binom_model_final <- glm.nb(tot ~ comm + bmi + athletes + host, data = train.data)
+summary(neg_binom_model_final)
+```
+
+The negative binomial regression model used can be expressed mathematically as follows:
+
+$$
+\text{log}(\mu_i) = \beta_0 + \beta_1 \cdot \text{comm}_i + \beta_2 \cdot \text{bmi}_i + \beta_3 \cdot \text{athletes}_i + \beta_4 \cdot \text{host}_i
+$$
+
+where: $\mu_i$ was the expected number of medals ($tot_i$) for country $i$, $\beta_0$ was the intercept, $\beta_1$ was the coefficient for whether the country was a communist state ($\text{comm}_i$), $\beta_2$ was the coefficient for the average BMI of the country ($\text{bmi}_i$), $\beta_3$ was the coefficient for the number of athletes ($\text{athletes}_i$), $\beta_4$ was the coefficient for whether the country was the host of the Olympics ($\text{host}_i$).
+
+The variance of the model was given by:
+
+$$
+\text{Var}(Y_i) = \mu_i + \frac{\mu_i^2}{\theta}
+$$
+
+where $\theta$ was the dispersion parameter, estimated in this case to be approximately 1.965.
+
+This model was used to account for overdispersion in the count data, where the variance exceeded the mean. By using the log link function, the model estimated the logarithm of the expected count (total medals) as a linear combination of the predictor variables.
+
+### 5.3 Zero-Inflated Models
+
+Zero-Inflated models were used when there were an excess number of zeros in the count data, which can lead to bias in standard Poisson or Negative Binomial models. Zero-Inflated Poisson Model
+
+#### 5.3.1 Zero-Inflated Poisson Model
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Fit Zero-Inflated Poisson Model
+zi_poisson_model <- zeroinfl(tot ~ comm + host + bmi | athletes, data = train.data, dist = "poisson")
+summary(zi_poisson_model)
+AIC(zi_poisson_model)
+```
+
+#### 5.3.2 Zero-Inflated Negative Binomial Model
+
+We predicted the number of medals for 2016 using each model and evaluate the performance based on RMSE and MAE.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Fit Zero-Inflated Negative Binomial Model
+zi_neg_binom_model <- zeroinfl(tot ~ comm + host | athletes, data = train.data, dist = "negbin")
+summary(zi_neg_binom_model)
+AIC(zi_neg_binom_model)
+```
+
+The analysis involved fitting two zero-inflated models: a Zero-Inflated Poisson (ZIP) model and a Zero-Inflated Negative Binomial (ZINB) model, both of which predict the total number of medals. The ZIP model included `comm`, `host`, and `bmi` as predictors in the count model and `athletes` as a predictor in the zero-inflation model. Similarly, the ZINB model used `comm` and `host` as predictors in the count model, with `athletes` in the zero-inflation part.
+
+After fitting both models, we compared their Akaike Information Criterion (AIC) values to assess model performance. The ZINB model had a smaller AIC compared to the ZIP model, indicating that the ZINB model provides a better fit for the data by accounting for overdispersion and excess zeros more effectively.
+
+The Zero-Inflated Negative Binomial (ZINB) model used in this analysis can be expressed mathematically as follows:
+
+##### Count Model (Negative Binomial Component):
+
+$$
+\text{log}(\mu_i) = \beta_0 + \beta_1 \cdot \text{comm}_i + \beta_2 \cdot \text{host}_i
+$$
+
+where: $\mu_i$ was the expected number of medals ($tot_i$) for country $i$, $\beta_0$ was the intercept, - $\beta_1$ was the coefficient for whether the country was a communist state ($\text{comm}_i$), $\beta_2$ was the coefficient for whether the country is the host of the Olympics ($\text{host}_i$).
+
+##### Zero-Inflation Model (Logistic Regression Component):
+
+The probability of excess zeros was modeled using a logistic regression:
+
+$$
+\text{logit}(p_i) = \gamma_0 + \gamma_1 \cdot \text{athletes}_i
+$$
+
+where: $p_i$ was the probability that country $i$ had an excess zero (i.e., no medals), $\gamma_0$ was the intercept for the zero-inflation model, $\gamma_1$ was the coefficient for the number of athletes ($\text{athletes}_i$).
+
+##### Combined ZINB Model:
+
+The combined Zero-Inflated Negative Binomial model was:
+
+$$
+P(Y_i = 0) = p_i + (1 - p_i) \cdot \left(\frac{1}{1 + \alpha \mu_i}\right)^{1/\alpha}
+$$
+
+$$
+P(Y_i = y) = (1 - p_i) \cdot \frac{\Gamma(y + 1/\alpha)}{\Gamma(1/\alpha) \cdot y!} \cdot \left(\frac{1}{1 + \alpha \mu_i}\right)^{1/\alpha} \cdot \left(\frac{\alpha \mu_i}{1 + \alpha \mu_i}\right)^y, \quad y > 0
+$$
+
+where $\alpha$ was the dispersion parameter of the Negative Binomial distribution, and $\Gamma(\cdot)$ represents the Gamma function.
+
+This model accounted for overdispersion in the count data and the presence of excess zeros by combining a negative binomial count model with a logistic regression model for zero inflation.
+
+
+## 6. Prediction and Evaluation
+
+We used test.data to make predictions for the three models respectively, and calculated their RMSE and MAE for comparison.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Predict the 2016 medal count using Poisson's final model
+predicted_tot16_poisson <- predict(poisson_model_step, newdata = test.data, type = "response")
+
+# Calculate the root mean square error (RMSE) of the prediction
+rmse_poisson <- sqrt(mean((test.data$tot - predicted_tot16_poisson)^2))
+rmse_poisson
+
+# Calculate MAE
+mae_poisson <- mean(abs(test.data$tot - predicted_tot16_poisson))
+mae_poisson
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Predict the 2016 medal count using Negative Binomial's final model
+predicted_tot16_nb <- predict(neg_binom_model_final, newdata = test.data, type = "response")
+
+# Calculate the root mean square error (RMSE) of the prediction
+rmse_nb <- sqrt(mean((test.data$tot - predicted_tot16_nb)^2))
+rmse_nb
+
+# Calculate MAE
+mae_nb <- mean(abs(test.data$tot - predicted_tot16_nb))
+mae_nb
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+# Predict the 2016 medal count using Zero-Inflated Negative Binomial Model
+predicted_tot16_zi <- predict(zi_neg_binom_model, newdata = test.data, type = "response")
+
+# Calculate the root mean square error (RMSE) of the prediction
+rmse_zi <- sqrt(mean((test.data$tot - predicted_tot16_zi)^2))
+rmse_zi
+
+# Calculate MAE
+mae_zi <- mean(abs(test.data$tot - predicted_tot16_zi))
+mae_zi
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+results_table <- data.frame(
+  Model = c("Poisson Regression", "Negative Binomial Regression", "Zero Inflated Regression"),
+  RMSE = round(c(rmse_poisson, rmse_nb, rmse_zi), 2),
+  MAE = round(c(mae_poisson, mae_nb, mae_zi), 2)
+)
+
+results_table %>%
+  gt() %>%
+  tab_header(
+    title = "Model Performance Comparison",
+    subtitle = "Comparison of RMSE and MAE across different models"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    RMSE = "Root Mean Square Error (RMSE)",
+    MAE = "Mean Absolute Error (MAE)"
+  )
+```
+
+As shown in the figure, the previous analysis of the model performance comparison table highlighted that Poisson Regression, despite having the lowest RMSE (6.15) and MAE (3.58), might not have been the most appropriate model due to the presence of overdispersion in the data. Overdispersion occurred when the variance in the data exceeded the mean, which could have led to inefficiencies and biases in the Poisson model. This was evident from the relatively high RMSE and MAE values observed in the Negative Binomial Regression (RMSE: 13.52, MAE: 5.60) and Zero Inflated Regression (RMSE: 11.89, MAE: 5.42) models, which were typically designed to handle such issues but still did not outperform the Poisson model.
+
+
+## 6. Improvements
+
+In the previous analysis, we utilized Poisson regression, Negative Binomial regression, and Zero-Inflated models to predict the total number of medals a country might win at the Olympics. While these models performed well in handling count data, particularly in addressing overdispersion and a high number of zero counts---where the Negative Binomial and Zero-Inflated models provided better fits---they have limitations in capturing complex nonlinear relationships and higher-order interactions between variables. To further enhance predictive accuracy, we introduced advanced machine learning techniques, namely Gradient Boosting Trees and Random Forests. These methods automatically capture nonlinear relationships between variables, are well-suited for handling high-dimensional data, and effectively reduce the risk of overfitting by averaging the results of multiple decision trees or through iterative optimization and weighted adjustments. Additionally, they exhibit strong robustness when dealing with noisy data or outliers. By employing these techniques, we aim to further refine our predictions of Olympic medal counts, thereby improving the accuracy and reliability of our models
+
+### 6.1 Improvement with Gradient Boosting Trees
+
+To improve the predictive performance of the model, we implemented a Gradient Boosting Machine (GBM). Gradient Boosting Trees are an ensemble learning technique that builds models sequentially, each new model attempting to correct the errors of the previous ones. This method is particularly effective for handling non-linear relationships and interactions between variables.
+
+1.  **Model Training**:
+    -   We trained a GBM model using the training dataset, including variables such as `gdp`, `pop`, `comm`, `oneparty`, `altitude`, `muslim`, `bmi`, `athletes`, and `host`.
+    -   The model was configured with 500 trees (`n.trees = 500`), a shrinkage rate of 0.05, and an interaction depth of 6.
+2.  **Predictions**:
+    -   We used the trained GBM model to predict the target variable `tot` on the test dataset.
+3.  **Model Evaluation**:
+    -   We calculated the Root Mean Square Error (RMSE) and Mean Absolute Error (MAE) to assess the model's performance on the test data.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+#Improvement with Gradient Boosting Trees
+set.seed(234)
+gbmModel <- gbm(tot ~ gdp + pop + comm + oneparty + altitude + muslim + bmi +
+    athletes + host , data = train.data , distribution = "gaussian", n.trees = 500, shrinkage = 0.05, interaction.depth = 6 )
+predictions <- predict(gbmModel, test.data, n.trees = 500)
+#RMSE
+rmse_gbm<- sqrt(mean((predictions - test.data$tot)^2))
+rmse_gbm
+#MAE
+mae_gbm <- mean(abs(predictions - test.data$tot))
+mae_gbm
+```
+
+### 6.2 Random Forest
+
+Random Forests are another ensemble learning method that aggregates the predictions of multiple decision trees to improve accuracy and control overfitting.
+
+1.  **Model Training**:
+    -   We built a Random Forest model using the same predictor variables as the GBM model.
+    -   The model was configured with 500 trees (`ntree = 500`).
+2.  **Predictions**:
+    -   The trained Random Forest model was used to predict the target variable `tot` on the test dataset.
+3.  **Model Evaluation**:
+    -   Similar to the GBM model, we calculated the RMSE and MAE to evaluate the performance of the Random Forest model on the test data.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+# Set the random seed to ensure reproducibility
+set.seed(123)
+
+# Build the Random Forest model
+rf_model <- randomForest(
+  tot ~ gdp + pop + comm + oneparty + altitude + muslim + bmi +
+    athletes + host  , 
+  data = train.data, 
+  ntree = 500
+)
+
+# Use the model to make predictions
+predictions_rf <- predict(rf_model, newdata = test.data)
+
+# Calculate RMSE (Root Mean Square Error)
+rmse_rf <- sqrt(mean((predictions_rf - test.data$tot)^2))
+
+# Output the RMSE
+rmse_rf
+
+# Calculate MAE (Mean Absolute Error)
+mae_rf <- mean(abs(predictions_rf - test.data$tot))
+
+# Output the MAE
+mae_rf
+```
+
+## 7. Results Comparison
+
+Finally, we compared the performance of all models using RMSE and MAE to identify the most accurate model for predicting the total number of medals.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+results_table <- data.frame(
+  Model = c("Poisson Regression", "Negative Binomial Regression", "Zero Inflated Regression", "Gradient Boosting Machine", "Random Forest"),
+  RMSE = round(c(rmse_poisson, rmse_nb, rmse_zi, rmse_gbm, rmse_rf), 2),
+  MAE = round(c(mae_poisson, mae_nb, mae_zi, mae_gbm, mae_rf), 2)
+)
+
+results_table %>%
+  gt() %>%
+  tab_header(
+    title = "Model Performance Comparison",
+    subtitle = "Comparison of RMSE and MAE across different models"
+  ) %>%
+  cols_label(
+    Model = "Model",
+    RMSE = "Root Mean Square Error (RMSE)",
+    MAE = "Mean Absolute Error (MAE)"
+  )
+
+```
+
+As shown in the figure, the RMSE and MAE predicted by random forest model are the smallest, so random forest is the model with the best prediction effect.
+
+## 8. Conclusions
+
+1.Based on the correlation analysis and the summary results from various models, we can conclude that GDP, the number of athletes, hosting the event, and being a communist country are factors associated with the total number of medals won by each country. Given that the dataset includes only three socialist countries, with China being the only one to win a significant number of medals, Therefore, comm cannot be a factor in determining the total number of medals.
+
+2.We used Poisson regression, Negative Binomial regression, and Zero-Inflated models to predict each country's Olympic performance in 2016, taking into account the data characteristics and distribution. Despite the presence of overdispersion in the data, the Poisson regression model provided better predictive accuracy compared to the other models.
+
+3.To improve predicting performance, we addressed the limitations of the initial models by using Gradient Boosting Trees and Random Forest models. Among these, the Random Forest model provided the best predictive accuracy, leading to a significant enhancement in prediction performance.
+
+## 9. Possible improvements
+
+-   Applying a log transformation of gdp, pop, altitude and bmi.
+-   Using a mixed-effects model allows to incorporate both fixed and random effect
+ 
